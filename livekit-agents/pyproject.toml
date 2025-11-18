@@ -99,6 +99,7 @@ tavus = ["livekit-plugins-tavus>=1.2.17"]
 turn-detector = ["livekit-plugins-turn-detector>=1.2.17"]
 ultravox = ["livekit-plugins-ultravox>=1.2.17"]
 upliftai = ["livekit-plugins-upliftai>=1.2.17"]
+pipecat = ["livekit-plugins-pipecat>=1.2.17"]
 
 
 [project.urls]
