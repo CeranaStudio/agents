@@ -112,24 +112,43 @@ class BackgroundAudioPlayer:
 
         self._ambient_handle: PlayHandle | None = None
         self._thinking_handle: PlayHandle | None = None
+        self._last_thinking_sound: AudioSource | None = None
 
-    def _select_sound_from_list(self, sounds: list[AudioConfig]) -> AudioConfig | None:
+    def _select_sound_from_list(
+        self, sounds: list[AudioConfig], exclude: AudioSource | None = None
+    ) -> AudioConfig | None:
         """
         Selects a sound from a list of BackgroundSound based on their probabilities.
         Returns None if no sound is selected (when sum of probabilities < 1.0).
+
+        Args:
+            sounds: List of AudioConfig objects to choose from
+            exclude: Optional AudioSource to exclude from selection (avoid immediate repetition)
         """
-        total_probability = sum(sound.probability for sound in sounds)
+        # Filter out the excluded sound if specified
+        if exclude is not None:
+            available_sounds = [s for s in sounds if s.source != exclude]
+            if not available_sounds:
+                available_sounds = sounds
+        else:
+            available_sounds = sounds
+
+        total_probability = sum(sound.probability for sound in available_sounds)
         if total_probability <= 0:
             return None
 
-        if total_probability < 1.0 and random.random() > total_probability:
-            return None
+        # When a sound is excluded, renormalize probabilities to ensure selection
+        if exclude is not None and total_probability < 1.0:
+            normalize_factor = total_probability
+        else:
+            if total_probability < 1.0 and random.random() > total_probability:
+                return None
+            normalize_factor = 1.0 if total_probability <= 1.0 else total_probability
 
-        normalize_factor = 1.0 if total_probability <= 1.0 else total_probability
         r = random.random() * min(total_probability, 1.0)
         cumulative = 0.0
 
-        for sound in sounds:
+        for sound in available_sounds:
             if sound.probability <= 0:
                 continue
 
@@ -139,10 +158,10 @@ class BackgroundAudioPlayer:
             if r <= cumulative:
                 return sound
 
-        return sounds[-1]
+        return available_sounds[-1]
 
     def _normalize_sound_source(
-        self, source: AudioSource | AudioConfig | list[AudioConfig] | None
+        self, source: AudioSource | AudioConfig | list[AudioConfig] | None, exclude: AudioSource | None = None
     ) -> tuple[AudioSource, float] | None:
         if source is None:
             return None
@@ -150,7 +169,7 @@ class BackgroundAudioPlayer:
         if isinstance(source, BuiltinAudioClip):
             return self._normalize_builtin_audio(source), 1.0
         elif isinstance(source, list):
-            selected = self._select_sound_from_list(cast(list[AudioConfig], source))
+            selected = self._select_sound_from_list(cast(list[AudioConfig], source), exclude=exclude)
             if selected is None:
                 return None
             return selected.source, selected.volume
@@ -170,6 +189,7 @@ class BackgroundAudioPlayer:
         audio: AudioSource | AudioConfig | list[AudioConfig],
         *,
         loop: bool = False,
+        exclude: AudioSource | None = None,
     ) -> PlayHandle:
         """
         Plays an audio once or in a loop.
@@ -188,6 +208,9 @@ class BackgroundAudioPlayer:
             loop (bool, optional):
                 Whether to loop the audio. Only applicable if `audio` is a string or contains strings.
                 Defaults to False.
+            exclude (AudioSource, optional):
+                AudioSource to exclude from selection when choosing from a list.
+                Used to avoid immediate repetition of sounds. Defaults to None.
 
         Returns:
             PlayHandle: An object representing the playback handle. This can be
@@ -196,7 +219,7 @@ class BackgroundAudioPlayer:
         if not self._mixer_atask:
             raise RuntimeError("BackgroundAudio is not started")
 
-        normalized = self._normalize_sound_source(audio)
+        normalized = self._normalize_sound_source(audio, exclude=exclude)
         if normalized is None:
             play_handle = PlayHandle()
             play_handle._mark_playout_done()
@@ -316,9 +339,19 @@ class BackgroundAudioPlayer:
                 return
 
             assert self._thinking_sound is not None
-            self._thinking_handle = self.play(
-                cast(Union[AudioSource, AudioConfig, list[AudioConfig]], self._thinking_sound)
+
+            # Normalize once to get the actual selected sound
+            normalized = self._normalize_sound_source(
+                cast(Union[AudioSource, AudioConfig, list[AudioConfig]], self._thinking_sound),
+                exclude=self._last_thinking_sound
             )
+
+            if normalized:
+                selected_source, volume = normalized
+                # Play the already-selected sound
+                self._thinking_handle = self.play(AudioConfig(selected_source, volume))
+                # Record for next time
+                self._last_thinking_sound = selected_source
 
         elif self._thinking_handle:
             self._thinking_handle.stop()
