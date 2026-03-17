@@ -13,6 +13,7 @@ from livekit.agents.metrics.base import Metadata
 
 from .metrics import VADMetrics
 from .utils import aio
+from .log import logger
 
 
 @unique
@@ -143,6 +144,17 @@ class VADStream(ABC):
                     inference_duration_total = 0.0
                     inference_count = 0
             elif ev.type in [VADEventType.START_OF_SPEECH, VADEventType.END_OF_SPEECH]:
+                logger.debug(
+                    "vad_event",
+                    extra={
+                        "vad_event_type": ev.type.value,
+                        "speaking": ev.speaking,
+                        "speech_duration": ev.speech_duration,
+                        "silence_duration": ev.silence_duration,
+                        "raw_accumulated_speech": ev.raw_accumulated_speech,
+                        "raw_accumulated_silence": ev.raw_accumulated_silence,
+                    },
+                )
                 self._last_activity_time = time.perf_counter()
 
     def push_frame(self, frame: rtc.AudioFrame) -> None:

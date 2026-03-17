@@ -1166,7 +1166,7 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
-    def _interrupt_by_audio_activity(self) -> None:
+    def _interrupt_by_audio_activity(self, *, source: str | None = None, extra: dict[str, Any] | None = None) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
@@ -1183,6 +1183,14 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                logger.debug(
+                    "interrupt_by_audio_activity",
+                    extra={
+                        "source": source,
+                        "interrupted": False,
+                        **(extra or {}),
+                    },
+                )
                 return
 
         if self._rt_session is not None:
@@ -1208,6 +1216,15 @@ class AgentActivity(RecognitionHooks):
                     self._rt_session.interrupt()
 
                 self._current_speech.interrupt()
+
+            logger.debug(
+                "interrupt_by_audio_activity",
+                extra={
+                    "source": source,
+                    "interrupted": True,
+                    **(extra or {}),
+                },
+            )
 
     # region recognition hooks
 
@@ -1246,7 +1263,13 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+            self._interrupt_by_audio_activity(
+                source="on_vad_inference_done",
+                extra={
+                    "speech_duration": ev.speech_duration,
+                    "min_interruption_duration": self._session.options.min_interruption_duration,
+                },
+            )
 
         if (
             ev.speaking
@@ -1275,7 +1298,14 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            transcript_text = (ev.alternatives[0].text or "").strip()
+            self._interrupt_by_audio_activity(
+                source="on_interim_transcript",
+                extra={
+                    "transcript_len": len(transcript_text),
+                    "transcript_preview": transcript_text[:80] if transcript_text else "",
+                },
+            )
 
             if (
                 speaking is False
@@ -1306,7 +1336,13 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            self._interrupt_by_audio_activity(
+                source="on_final_transcript",
+                extra={
+                    "transcript_len": len(ev.alternatives[0].text),
+                    "transcript_preview": ev.alternatives[0].text[:80] if ev.alternatives[0].text else "",
+                },
+            )
 
             if (
                 speaking is False
