@@ -21,6 +21,7 @@ from ..utils.aio import cancel_and_wait
 from ..utils.audio import audio_frames_from_file
 from .agent_session import AgentSession
 from .events import AgentStateChangedEvent
+from .events import UserStateChangedEvent
 
 _resource_stack = contextlib.ExitStack()
 atexit.register(_resource_stack.close)
@@ -70,6 +71,9 @@ class BackgroundAudioPlayer:
         self,
         *,
         ambient_sound: NotGivenOr[AudioSource | AudioConfig | list[AudioConfig] | None] = NOT_GIVEN,
+        eos_sound: NotGivenOr[
+            AudioSource | AudioConfig | list[AudioConfig] | None
+        ] = NOT_GIVEN,
         thinking_sound: NotGivenOr[
             AudioSource | AudioConfig | list[AudioConfig] | None
         ] = NOT_GIVEN,
@@ -100,6 +104,7 @@ class BackgroundAudioPlayer:
         """  # noqa: E501
 
         self._ambient_sound = ambient_sound if is_given(ambient_sound) else None
+        self._eos_sound = eos_sound if is_given(eos_sound) else None
         self._thinking_sound = thinking_sound if is_given(thinking_sound) else None
 
         self._audio_source = rtc.AudioSource(48000, 1, queue_size_ms=_AUDIO_SOURCE_BUFFER_MS)
@@ -116,7 +121,9 @@ class BackgroundAudioPlayer:
 
         self._ambient_handle: PlayHandle | None = None
         self._thinking_handle: PlayHandle | None = None
+        self._eos_handle: PlayHandle | None = None
         self._last_thinking_sound: AudioSource | None = None
+        self._last_eos_sound: AudioSource | None = None
 
     def _select_sound_from_list(
         self, sounds: list[AudioConfig], exclude: AudioSource | None = None
@@ -289,6 +296,7 @@ class BackgroundAudioPlayer:
 
             if self._agent_session:
                 self._agent_session.on("agent_state_changed", self._agent_state_changed)
+                self._agent_session.on("user_state_changed", self._user_state_changed)
 
             if self._ambient_sound:
                 normalized = self._normalize_sound_source(
@@ -324,6 +332,7 @@ class BackgroundAudioPlayer:
 
             if self._agent_session:
                 self._agent_session.off("agent_state_changed", self._agent_state_changed)
+                self._agent_session.off("user_state_changed", self._user_state_changed)
 
             self._room.off("reconnected", self._on_reconnected)
 
@@ -339,6 +348,13 @@ class BackgroundAudioPlayer:
         self._republish_task = asyncio.create_task(self._republish_track_task())
 
     def _agent_state_changed(self, ev: AgentStateChangedEvent) -> None:
+        # Stop the EOS filler as soon as the agent is about to speaking.
+        if self._eos_handle and not self._eos_handle.done():
+            if ev.new_state == "speaking":
+                self._eos_handle.stop()
+            else:
+                return
+
         if not self._thinking_sound:
             return
 
@@ -363,6 +379,30 @@ class BackgroundAudioPlayer:
 
         elif self._thinking_handle:
             self._thinking_handle.stop()
+
+    def _user_state_changed(self, ev: UserStateChangedEvent) -> None:
+        if ev.new_state == "listening":
+            # EOS filler: play once when user finishes speaking.
+            if ev.old_state == "speaking" and self._eos_sound:
+                # Skip EOS when agent is currently speaking.
+                # This avoids playing EOS over/into active agent speech.
+                if self._agent_session and self._agent_session.agent_state in ["thinking", "speaking"]:
+                    return
+
+                if self._eos_handle and not self._eos_handle.done():
+                    return
+
+                assert self._eos_sound is not None
+                normalized = self._normalize_sound_source(
+                    cast(Union[AudioSource, AudioConfig, list[AudioConfig]], self._eos_sound),
+                    exclude=self._last_eos_sound
+                )
+                if random.random() < 0.5:
+                    return
+                if normalized:
+                    selected_source, volume = normalized
+                    self._eos_handle = self.play(AudioConfig(selected_source, volume))
+                    self._last_eos_sound = selected_source
 
     @log_exceptions(logger=logger)
     async def _play_task(
