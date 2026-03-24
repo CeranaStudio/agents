@@ -41,7 +41,7 @@ class BuiltinAudioClip(enum.Enum):
         return str(_resource_stack.enter_context(as_file(file_path)))
 
 
-AudioSource = Union[AsyncIterator[rtc.AudioFrame], str, BuiltinAudioClip]
+AudioSource = AsyncIterator[rtc.AudioFrame] | str | BuiltinAudioClip
 
 
 class AudioConfig(NamedTuple):
@@ -299,9 +299,7 @@ class BackgroundAudioPlayer:
                 self._agent_session.on("user_state_changed", self._user_state_changed)
 
             if self._ambient_sound:
-                normalized = self._normalize_sound_source(
-                    cast(Union[AudioSource, AudioConfig, list[AudioConfig]], self._ambient_sound)
-                )
+                normalized = self._normalize_sound_source(self._ambient_sound)
                 if normalized:
                     sound_source, volume = normalized
                     selected_sound = AudioConfig(sound_source, volume)

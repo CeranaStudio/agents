@@ -124,6 +124,9 @@ async def assert_valid_synthesized_audio(
             ssl=ssl_ctx,
             server_hostname="api.openai.com",
         ) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                raise RuntimeError(f"Whisper transcription failed ({resp.status}): {body}")
             result = await resp.json()
 
     # semantic
@@ -525,7 +528,9 @@ async def _do_stream(tts_v: tts.TTS, segments: list[str], *, conn_options: APICo
 
         assert len(by_segment) >= 1, "expected at least one segment"
 
-        for _, (segment_text, segment_events) in enumerate(zip(segments, by_segment.values())):
+        for _, (segment_text, segment_events) in enumerate(
+            zip(segments, by_segment.values(), strict=False)
+        ):
             *non_final, final = segment_events
 
             # idx = audio_events.index(non_final[0])

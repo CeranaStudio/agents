@@ -1,5 +1,6 @@
 from . import remote_chat_context, utils
 from .chat_context import (
+    AgentConfigUpdate,
     AgentHandoff,
     AudioContent,
     ChatContent,
@@ -17,6 +18,7 @@ from .llm import (
     LLM,
     ChatChunk,
     ChoiceDelta,
+    CollectedResponse,
     CompletionUsage,
     FunctionToolCall,
     LLMError,
@@ -34,6 +36,7 @@ from .realtime import (
     RealtimeModelError,
     RealtimeSession,
     RealtimeSessionReconnectedEvent,
+    RemoteItemAddedEvent,
 )
 from .tool_context import (
     FunctionTool,
@@ -50,10 +53,14 @@ from .tool_context import (
     is_function_tool,
     is_raw_function_tool,
 )
+from .utils import FunctionCallResult, execute_function_call
 
 __all__ = [
     "LLM",
     "LLMStream",
+    "CollectedResponse",
+    "execute_function_call",
+    "FunctionCallResult",
     "ChatContext",
     "ChatRole",
     "ChatMessage",
@@ -62,6 +69,7 @@ __all__ = [
     "FunctionCallOutput",
     "AudioContent",
     "ImageContent",
+    "AgentConfigUpdate",
     "AgentHandoff",
     "MetricsReport",
     "ChatItem",
@@ -99,6 +107,7 @@ __all__ = [
     "RealtimeSessionReconnectedEvent",
     "RealtimeSessionRestoredEvent",
     "LLMError",
+    "RemoteItemAddedEvent",
 ]
 
 # Cleanup docs of unexported modules
